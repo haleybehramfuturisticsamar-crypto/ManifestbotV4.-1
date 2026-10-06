@@ -41,29 +41,7 @@ async def chat(ctx, *, prompt: str):
 @bot.command(name="kick")
 @commands.has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Kicks a member from the server"""
-    try:
-        await member.kick(reason=reason)
-        await ctx.send(f"Kicked {member.mention} for: {reason}")
-    except Exception as e:
-        await ctx.send(f"Failed to kick user: {e}")
-
-@bot.command(name="ban")
-@commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Bans a member from the server"""
-    try:
-        await member.ban(reason=reason)
-        await ctx.send(f"Banned {member.mention} for: {reason}")
-    except Exception as e:
-        await ctx.send(f"Failed to ban user: {e}")
-
-# Run the bot using the DISCORD_TOKEN environment variable
-token = os.getenv("DISCORD_TOKEN")
-if token:
-    bot.run(token)
-else:
-    print("Error: DISCORD_TOKEN environment variable not found.")
+    """Kicks a member from the server"
 
 
 
