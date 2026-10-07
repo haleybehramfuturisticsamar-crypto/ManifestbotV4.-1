@@ -281,20 +281,4 @@ async def roll(ctx, dice: str = "1d6"):
 
 @bot.command(name="flip")
 async def flip(ctx):
-    await ctx.send(f"🪙 **{random.choice(['Heads', 'Tails'])}**")
 
-@bot.command(name="ping")
-async def ping(ctx):
-    await ctx.send(f"🏓 Pong! Latency: **{round(bot.latency * 1000)}ms**")
-
-# 11. MAIN ENTRYPOINT
-async def main():
-    await start_web_server()
-    token = os.getenv("DISCORD_TOKEN")
-    if token:
-        await bot.start(token)
-    else:
-        print("Error: DISCORD_TOKEN environment variable missing.")
-
-if __name__ == "__main__":
-    asyncio.run(main())
