@@ -4,6 +4,7 @@ import datetime
 import asyncio
 import sqlite3
 import discord
+from mistralai.client import Mistral
 from discord.ext import commands 
 from aiohttp import web
 
