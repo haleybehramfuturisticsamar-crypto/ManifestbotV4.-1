@@ -4,8 +4,7 @@ import datetime
 import asyncio
 import sqlite3
 import discord
-from discord.ext import commands
-from mistralai import Mistral
+from discord.ext import commands 
 from aiohttp import web
 
 # 1. DUMMY WEB SERVER FOR RENDER
