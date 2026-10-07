@@ -1,6 +1,7 @@
 discord.py
 aiohttp
-mistralai
+mistralai>=1.0.0
+
 
 
 
