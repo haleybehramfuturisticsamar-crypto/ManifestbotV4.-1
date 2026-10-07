@@ -1,6 +1,7 @@
 discord.py
-mistralai
+groq
 aiohttp
+
 
 
 
