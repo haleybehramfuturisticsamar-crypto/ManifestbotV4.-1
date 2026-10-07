@@ -119,14 +119,20 @@ async def on_message(message):
         try:
             server_owner_name = message.guild.owner.name if message.guild.owner else "Unknown"
             
-            if is_ticket_channel:
+                        if is_ticket_channel:
                 system_prompt = (
-                    f"You are Manifest V7.9 acting as an Autonomous Ticket Support Agent. "
-                    f"No human moderator has answered yet, so you must help the user resolve their issue completely. "
-                    f"Be sharp, helpful, technical, and polite. Walk them through troubleshooting steps step-by-step. "
-                    f"Creator: thunderxstorms5_.. Current User: {speaker_username} ({speaker_display})."
+                    "You are Manifest V7.9 acting as an Autonomous Ticket Support Agent. "
+                    "No human moderator has answered yet, so you must help the user resolve their issue completely. "
+                    "Be sharp, helpful, technical, and polite. Walk them through troubleshooting steps step-by-step. "
+                    f"Creator: thunderxstorms5_. Current User: {speaker_username} ({speaker_display})."
                 )
             else:
                 system_prompt = (
-                    f"You are Manifest V7.9, an elite security sentinel and assistant. "
-                    f"Creator/Master: thunderxstorms5
+                    "You are Manifest V7.9, an elite security sentinel and assistant. "
+                    f"Creator/Master: thunderxstorms5_. Server Owner: {server_owner_name}. "
+                    f"CURRENT SPEAKER -> Username: {speaker_username}, Display Name: {speaker_display}, Is Master Thunder: {'Yes' if is_master else 'No'}. "
+                    "Be confident, concise, and smart. Reply directly to the user."
+                )
+
+            
+    
