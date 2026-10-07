@@ -1,4 +1,3 @@
-print("DEBUG: Chat command triggered successfully!")
 import os
 import random
 import datetime
@@ -6,7 +5,7 @@ import asyncio
 import sqlite3
 import discord
 from discord.ext import commands
-from groq import Groq
+from mistralai import Mistral
 from aiohttp import web
 
 # 1. DUMMY WEB SERVER FOR RENDER
@@ -29,8 +28,8 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Groq API Client setup
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Mistral API Client setup
+mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
 
 # 3. DATABASE SETUP
 conn = sqlite3.connect("bot_data.db")
@@ -73,7 +72,7 @@ async def on_command_error(ctx, error):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name} ({bot.user.id})")
-    print("Bot is online with Groq!")
+    print("Bot is online with Mistral AI!")
 
 @bot.event
 async def on_message(message):
@@ -124,7 +123,7 @@ async def on_member_join(member):
             
             await member.kick(reason=f"Anti-Raid: Account age ({account_age}d) under threshold ({min_days}d).")
 
-# 6. AI COMMANDS (GROQ ONLY)
+# 6. AI COMMANDS (MISTRAL)
 @bot.command(name="chat")
 async def chat(ctx, *, prompt: str = None):
     if not prompt:
@@ -132,7 +131,8 @@ async def chat(ctx, *, prompt: str = None):
 
     async with ctx.typing():
         try:
-            chat_completion = groq_client.chat.completions.create(
+            chat_response = mistral_client.chat.complete(
+                model="mistral-small-latest",
                 messages=[
                     {
                         "role": "system",
@@ -142,11 +142,10 @@ async def chat(ctx, *, prompt: str = None):
                         "role": "user",
                         "content": prompt,
                     }
-                ],
-                model="llama-3.3-70b-versatile",
+                ]
             )
             
-            response_text = chat_completion.choices[0].message.content
+            response_text = chat_response.choices[0].message.content
             
             if len(response_text) > 2000:
                 return await ctx.send(response_text[:1997] + "...")
@@ -154,8 +153,8 @@ async def chat(ctx, *, prompt: str = None):
                 return await ctx.send(response_text)
                 
         except Exception as e:
-            print(f"Groq API Error: {e}")
-            await ctx.send("⚠️ Groq servers encountered an error. Please try again in a moment.")
+            print(f"Mistral API Error: {e}")
+            await ctx.send(f"⚠️ Mistral Error: `{e}`")
 
 # 7. LEVELING COMMANDS
 @bot.command(name="rank", aliases=["level", "xp"])
@@ -281,4 +280,20 @@ async def roll(ctx, dice: str = "1d6"):
 
 @bot.command(name="flip")
 async def flip(ctx):
+    await ctx.send(f"🪙 **{random.choice(['Heads', 'Tails'])}**")
 
+@bot.command(name="ping")
+async def ping(ctx):
+    await ctx.send(f"🏓 Pong! Latency: **{round(bot.latency * 1000)}ms**")
+
+# 11. MAIN ENTRYPOINT
+async def main():
+    await start_web_server()
+    token = os.getenv("DISCORD_TOKEN")
+    if token:
+        await bot.start(token)
+    else:
+        print("Error: DISCORD_TOKEN environment variable missing.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
