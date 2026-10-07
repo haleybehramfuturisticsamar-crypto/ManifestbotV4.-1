@@ -1,5 +1,7 @@
 discord.py
+mistralai
 aiohttp
+
 
 
 
