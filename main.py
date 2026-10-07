@@ -1,3 +1,4 @@
+print("DEBUG: Chat command triggered successfully!")
 import os
 import random
 import datetime
