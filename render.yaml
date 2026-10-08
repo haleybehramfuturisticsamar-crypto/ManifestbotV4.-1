@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: manifest-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /ready
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: MAKER_USER_ID
+        value: "1386055253581103164"
+      - key: ADMIN_USER_ID
+        value: "1531681224756826263"
+      - key: LAVALINK_HOST
+        fromService:
+          name: manifest-lavalink
+          type: web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: LAVALINK_PASSWORD
+        fromService:
+          name: manifest-lavalink
+          type: web
+          envVarKey: LAVALINK_PASSWORD
+
+  - type: web
+    name: manifest-lavalink
+    runtime: docker
+    plan: free
+    dockerfilePath: ./lavalink/Dockerfile
+    dockerContext: .
+    healthCheckPath: /version
+    envVars:
+      - key: LAVALINK_PASSWORD
+        generateValue: true
