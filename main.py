@@ -44,7 +44,7 @@ DB_PATH = os.getenv("MANIFEST_DB", "manifest_v9.db")
 PORT = int(os.getenv("PORT", "8080"))
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 PREFIXES = ("!", "?", "$", ".")
-VERSION = "10.0"
+VERSION = "10.5"
 OWNER_USER_ID = 1386055253581103164
 ADMIN_USER_ID = 1531681224756826263
 DEVELOPER_TEAM = {OWNER_USER_ID: "Owner / Founding Creator", ADMIN_USER_ID: "Admin"}
@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     welcome_enabled INTEGER DEFAULT 0,
     welcome_channel_id INTEGER DEFAULT 0,
     log_channel_id INTEGER DEFAULT 0,
+    message_log_channel_id INTEGER DEFAULT 0,
     ticket_category_id INTEGER DEFAULT 0,
     ticket_support_role_id INTEGER DEFAULT 0,
     ai_channel_only INTEGER DEFAULT 0,
@@ -338,6 +339,12 @@ class Database:
         self.db = await aiosqlite.connect(self.path)
         self.db.row_factory = aiosqlite.Row
         await self.db.executescript(SCHEMA)
+        # Safe migration for existing databases created before split log channels.
+        cur = await self.db.execute("PRAGMA table_info(guild_settings)")
+        columns = {row[1] for row in await cur.fetchall()}
+        await cur.close()
+        if "message_log_channel_id" not in columns:
+            await self.db.execute("ALTER TABLE guild_settings ADD COLUMN message_log_channel_id INTEGER DEFAULT 0")
         await self.db.commit()
 
     async def close(self):
@@ -561,7 +568,7 @@ async def set_setting(guild_id: int, key: str, value):
         "ai_enabled", "dead_chat_enabled", "dead_chat_minutes",
         "dead_chat_role_id", "auto_ticket_minutes", "automod_enabled",
         "xp_enabled", "welcome_enabled", "welcome_channel_id",
-        "log_channel_id", "ticket_category_id", "ticket_support_role_id",
+        "log_channel_id", "message_log_channel_id", "ticket_category_id", "ticket_support_role_id",
         "ai_channel_only", "autopilot", "lockdown", "antinuke_enabled"
     }
     if key not in allowed:
@@ -583,6 +590,18 @@ async def log_to_channel(guild: discord.Guild, message: str):
             await channel.send(clamp_text(message))
         except discord.HTTPException:
             pass
+
+
+async def log_message_event(guild: discord.Guild, message: str):
+    """Send edited/deleted message events to the separately configured message log."""
+    channel_id = await setting(guild.id, "message_log_channel_id", 0)
+    channel = guild.get_channel(int(channel_id or 0)) if channel_id else None
+    if not isinstance(channel, discord.TextChannel):
+        return
+    try:
+        await channel.send(clamp_text(message, 1900))
+    except discord.HTTPException:
+        log.debug("Could not send message-log event in guild %s", guild.id)
 
 
 async def log_command(interaction: discord.Interaction, name: str, args: str = ""):
@@ -1124,7 +1143,7 @@ async def on_ready():
 @bot.event
 async def on_guild_join(guild: discord.Guild):
     await ensure_guild(guild)
-    await log_to_channel(guild, "✅ Manifest V10.0 joined the server.")
+    await log_to_channel(guild, "✅ Manifest V10.5 joined the server.")
 
 
 @bot.event
@@ -1165,8 +1184,67 @@ async def on_member_join(member: discord.Member):
 
 
 @bot.event
+async def on_message_delete(message: discord.Message):
+    if not message.guild or message.author.bot:
+        return
+    content = message.clean_content.strip() or "[no text content; possibly an attachment/embed]"
+    attachments = f" | Attachments: {len(message.attachments)}" if message.attachments else ""
+    await log_message_event(
+        message.guild,
+        f"🗑️ **Message deleted** in {message.channel.mention} by {message.author.mention} (`{message.author.id}`).\n"
+        f"Content: {clamp_text(content, 1200)}{attachments}",
+    )
+
+
+@bot.event
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    if not after.guild or after.author.bot or before.content == after.content:
+        return
+    await log_message_event(
+        after.guild,
+        f"✏️ **Message edited** in {after.channel.mention} by {after.author.mention} (`{after.author.id}`).\n"
+        f"Before: {clamp_text(before.clean_content or '[empty]', 700)}\nAfter: {clamp_text(after.clean_content or '[empty]', 700)}\n"
+        f"Jump: {after.jump_url}",
+    )
+
+
+@bot.event
+async def on_member_ban(guild: discord.Guild, user: discord.User):
+    await log_to_channel(guild, f"🔨 **Member banned:** {user} (`{user.id}`). Check the Discord audit log for the moderator and reason.")
+
+
+@bot.event
+async def on_member_unban(guild: discord.Guild, user: discord.User):
+    await log_to_channel(guild, f"♻️ **Member unbanned:** {user} (`{user.id}`). Check the Discord audit log for the moderator and reason.")
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    if before.timed_out_until == after.timed_out_until:
+        return
+    if after.timed_out_until and after.timed_out_until > discord.utils.utcnow():
+        await log_to_channel(after.guild, f"⏳ **Timeout applied/extended:** {after.mention} (`{after.id}`) until {discord.utils.format_dt(after.timed_out_until, style='F')}. Check the audit log for moderator and reason.")
+    elif before.timed_out_until and (not after.timed_out_until or after.timed_out_until <= discord.utils.utcnow()):
+        await log_to_channel(after.guild, f"✅ **Timeout removed/expired:** {after.mention} (`{after.id}`). Check the audit log for moderator and reason.")
+
+
+@bot.event
 async def on_member_remove(member: discord.Member):
-    await log_to_channel(member.guild, f"📤 **{member}** left the server.")
+    # Distinguish a kick from a normal departure using the recent audit log when available.
+    kicked_by = None
+    try:
+        async for entry in member.guild.audit_logs(limit=6, action=discord.AuditLogAction.kick):
+            if now() - entry.created_at.timestamp() > 12:
+                break
+            if getattr(entry.target, "id", None) == member.id:
+                kicked_by = entry.user
+                break
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    if kicked_by:
+        await log_to_channel(member.guild, f"👢 **Member kicked:** {member} (`{member.id}`) by {kicked_by.mention} (`{kicked_by.id}`). Check the Discord audit log for the reason.")
+    else:
+        await log_to_channel(member.guild, f"📤 **Member left:** {member} (`{member.id}`).")
 
 
 
@@ -1305,6 +1383,78 @@ async def handle_natural_action(message: discord.Message) -> bool:
             await message.channel.send(f"🎵 **{track['title']}** added to the queue.")
         except Exception as exc:
             await message.channel.send(f"⚠️ Music couldn't start: `{clamp_text(str(exc), 500)}`")
+        return True
+
+    # Authorized natural-language setup for separate moderation and message logs.
+    wants_log_setup = (
+        ("log" in low or "logging" in low)
+        and ("create" in low or "make" in low or "setup" in low or "set up" in low)
+        and ("moderation" in low or "mod log" in low)
+        and ("message" in low or "edit" in low or "delete" in low)
+    )
+    if wants_log_setup:
+        actor = message.author
+        if not (is_developer(actor) or is_server_owner(actor) or actor.guild_permissions.administrator or actor.guild_permissions.manage_guild):
+            await message.channel.send("⚠️ Only the server owner, an administrator, or someone with Manage Server can set up log channels.")
+            return True
+        guild = message.guild
+        me = guild.me
+        if not me or not me.guild_permissions.manage_channels:
+            await message.channel.send("⚠️ I need **Manage Channels** to create the log channels.")
+            return True
+        async def create_log_channel(name: str):
+            existing = discord.utils.get(guild.text_channels, name=name)
+            if existing:
+                return existing
+            overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False)}
+            overwrites[me] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, embed_links=True)
+            for role in guild.roles:
+                perms = role.permissions
+                if role.is_default():
+                    continue
+                if perms.administrator or perms.manage_guild or perms.manage_messages or perms.moderate_members or perms.kick_members or perms.ban_members:
+                    overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+            for dev_id in DEVELOPER_TEAM:
+                member = guild.get_member(dev_id)
+                if member:
+                    overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+            return await guild.create_text_channel(name, overwrites=overwrites, reason=f"Log channels requested by {actor}")
+        try:
+            mod_channel = await create_log_channel("manifest-mod-logs")
+            msg_channel = await create_log_channel("manifest-message-logs")
+            await set_setting(guild.id, "log_channel_id", mod_channel.id)
+            await set_setting(guild.id, "message_log_channel_id", msg_channel.id)
+            await message.channel.send(f"✅ Log channels are ready: {mod_channel.mention} for moderation events and {msg_channel.mention} for message edits/deletions.")
+        except discord.Forbidden:
+            await message.channel.send("⚠️ Discord denied channel creation. Check my **Manage Channels** permission and role position.")
+        except discord.HTTPException as exc:
+            await message.channel.send(f"⚠️ I couldn't finish log setup: `{clamp_text(str(exc), 350)}`")
+        return True
+
+    # Ticket creator or authorized ticket staff can close/archive by saying it naturally.
+    if re.search(r"\b(?:close|archive|shut)\b.*\b(?:this|my|the)\s+ticket\b|\b(?:close|archive)\s+ticket\b", low):
+        if not isinstance(message.channel, discord.TextChannel) or not ticket_channel(message.channel):
+            return False
+        row = await get_or_repair_ticket_record(message.channel)
+        if not row or row["status"] in ("closed", "orphaned"):
+            await message.channel.send("This ticket is already closed, or I couldn't verify its creator.")
+            return True
+        actor = message.author
+        if actor.id != int(row["user_id"]) and not await permission_granted(message.guild, actor, "ticket_manage"):
+            await message.channel.send("⚠️ Only the ticket creator or authorized ticket staff can close this ticket.")
+            return True
+        try:
+            await db.execute("UPDATE tickets SET status='closed',closed_at=? WHERE channel_id=?", (now(), message.channel.id))
+            await log_ticket_event(message.channel.id, actor.id, "closed", "Natural-language close request")
+            await message.channel.edit(name=f"closed-{message.channel.name.removeprefix('ticket-').removeprefix('closed-')[:70]}", reason=f"Ticket closed by {actor}")
+            await message.channel.set_permissions(message.guild.default_role, view_channel=False)
+            await message.channel.set_permissions(actor, view_channel=True, send_messages=False, read_message_history=True)
+            await message.channel.send(f"🔒 Ticket archived by {actor.mention}. You can reopen it with `/ticket ticket_reopen`.")
+            await log_to_channel(message.guild, f"🎫 Ticket archived: {message.channel.mention} by {actor.mention} (ID {actor.id}).")
+        except discord.Forbidden:
+            await message.channel.send("⚠️ I couldn't archive this ticket because Discord denied a channel permission change. Check my Manage Channels permission.")
+        except discord.HTTPException as exc:
+            await message.channel.send(f"⚠️ Ticket close partially failed: `{clamp_text(str(exc), 300)}`")
         return True
 
     # Ticket creation is safe for normal members.
@@ -2574,6 +2724,13 @@ async def deadchat(
 async def setlog(interaction: discord.Interaction, channel: discord.TextChannel):
     await set_setting(interaction.guild_id, "log_channel_id", channel.id)
     await interaction.response.send_message(f"📋 Logs will be sent to {channel.mention}.")
+
+
+@mod_group.command(name="setmessagelog", description="Set the channel for deleted/edited message logs.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def setmessagelog(interaction: discord.Interaction, channel: discord.TextChannel):
+    await set_setting(interaction.guild_id, "message_log_channel_id", channel.id)
+    await interaction.response.send_message(f"🧾 Edited and deleted messages will be logged in {channel.mention}.", ephemeral=True)
 
 
 @mod_group.command(name="set_ticket_support", description="Set the ticket support role.")
