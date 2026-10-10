@@ -1,0 +1,33 @@
+MANIFEST V11.5 - AUDITED PATCH PACKAGE
+
+Included files:
+- main.py: updated bot source
+- requirements.txt: existing dependency set retained; no new external provider added
+- tests/test_manifest.py: dependency-free static regression checks
+
+Main changes:
+- Unifies the configured MAKER_USER_ID with creator authorization checks and allows ADMIN_USER_ID to be configured.
+- Restricts creator-only commands to the verified creator ID instead of every developer-team member.
+- Keeps server-local Autopilot, anti-nuke monitoring, AI configuration, and level rewards manageable by the verified creator or the server's Manage Server/Admin users.
+- Fixes AI channel-only mode so it actually restricts mention-triggered responses to the configured channel; adds /mod ai_channel.
+- Adds configurable exact-level role rewards: /stats reward_set, /stats reward_remove, /stats rewards.
+- Improves anti-nuke watcher deduplication to reduce repeated alerts for the same recent deletion event.
+- Removes developer IDs, guild counts, and music error details from public health responses.
+- Makes music diagnostics check whether yt-dlp can import and whether an executable FFmpeg path exists instead of returning unconditional success flags.
+- Preserves the existing SQLite database and adds only an additive guild_settings column plus a new level_rewards table.
+
+Important verification limits:
+- main.py passes Python syntax compilation and the included 10 static regression tests.
+- Full runtime/import tests could not be run in this environment because discord.py, aiosqlite, and groq were not installed and package downloads were unavailable.
+- No live Discord server, Discord Gateway, Groq request, music playback, or Render deployment test was performed.
+- This is an audited incremental patch, not a claim that every proposed feature is implemented. Image/file generation integrations, richer event systems, and broad workflow builder features remain roadmap items.
+
+Update steps:
+1. Download and extract the ZIP.
+2. Replace the repository's main.py with this main.py.
+3. Replace requirements.txt with the included requirements.txt (the dependency list is retained).
+4. Optionally add tests/test_manifest.py to the repository; it is not needed to start the bot.
+5. Do not replace render.yaml or Procfile for this patch.
+6. Keep DISCORD_TOKEN, GROQ_API_KEY, and any existing MANIFEST_DB / MAKER_USER_ID settings in hosting environment variables. Never upload tokens or API keys to GitHub.
+7. Commit the files and wait for the host to deploy. Verify /ready, then test commands in a private test server first.
+8. Before deployment, create a backup of the current main.py and SQLite database. Roll back if the live bot fails startup or migrations.
